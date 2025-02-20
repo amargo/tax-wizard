@@ -5,27 +5,33 @@ import xml.etree.ElementTree as ET
 
 from datetime import datetime, timedelta
 from excel_config import SHEET_FORMAT_CONFIGS, HUF_FORMAT, NUMBER_FORMAT
+from openpyxl.utils import get_column_letter
 from zeep import Client, Settings
 
 STATEMENT_PREFIX = "[statement][transactions]"
+exchange_rate_cache = { }
 
 class MNBExchangeService:
+    """Az MNB árfolyam szolgáltatásával kapcsolatos műveletek."""
     def __init__(self, wsdl_url="http://www.mnb.hu/arfolyamok.asmx?wsdl", strict=False):
         settings = Settings(strict=strict, xml_huge_tree=True)
         self.client = Client(wsdl_url, settings=settings)
 
     def get_exchange_rate(self, date: datetime, currency: str) -> float:
+        """Lekéri az adott dátum (illetve fallback esetén az előző nap) alapján a deviza árfolyamát.
+        Ha a deviza HUF, visszatér 1.0-vel.
+        Cache használatával elkerüli a többszöri lekérdezést.
+        """
+        key = (date.strftime("%Y-%m-%d"), currency.upper())
+        if key in exchange_rate_cache:
+            return exchange_rate_cache[key]
+
         if currency.upper() == "HUF":
+            exchange_rate_cache[key] = 1.0
             return 1.0
 
         start_date_str = (date - timedelta(days=5)).strftime("%Y-%m-%d")
         end_date_str = date.strftime("%Y-%m-%d")
-        try:
-            body_type = self.client.get_type("{http://www.mnb.hu/webservices/}GetExchangeRatesRequestBody")
-        except Exception as e:
-            print("Hiba a GetExchangeRatesRequestBody típus lekérésekor:", e)
-            return None
-
         request_data = {
             'startDate': start_date_str,
             'endDate': end_date_str,
@@ -70,13 +76,25 @@ class MNBExchangeService:
         for rate in chosen_day.findall("Rate"):
             if rate.attrib.get("curr", "").upper() == currency.upper():
                 try:
-                    return float(rate.text.replace(",", "."))
+                    value = float(rate.text.replace(",", "."))
+                    # Cache-elés
+                    exchange_rate_cache[key] = value
+                    return value
                 except Exception as e:
                     print(f"Az árfolyam érték konvertálása sikertelen ({rate.text}): {e}")
                     return None
 
         print(f"A {currency} árfolyam nem található a válaszban.")
         return None
+
+    def convert_to_huf(self, amount: float, date: datetime, currency: str) -> float:
+        """Átváltja az adott összeget forintra a lekérdezett árfolyammal."""
+        rate = self.get_exchange_rate(date, currency)
+        if rate is None:
+            print(f"Nincs árfolyam adat {currency} esetén {date.strftime('%Y-%m-%d')}.")
+            return None
+        return amount * rate
+
 
 class LightyearProcessor:
     """LY tranzakciós adatok feldolgozása."""
@@ -116,36 +134,52 @@ class LightyearProcessor:
         open_positions_list = []
 
         for (ticker, ccy), group in trades.groupby(["Ticker", "CCY"]):
-            buy_sum = group[group["Type"].isin(["Buy", "Distribution"])]["Net Amt."].sum()
-            sell_df = group[group["Type"] == "Sell"]
-            sell_sum = sell_df["Net Amt."].sum()
+            # Szűrés: vásárlások (Buy, Distribution) és eladások (Sell)
+            buy_rows = group[group["Type"].isin(["Buy", "Distribution"])]
+            sell_rows = group[group["Type"] == "Sell"]
 
-            if sell_sum != 0:
-                realized_pnl = sell_sum - buy_sum
-                sale_date = sell_df["Date"].max()
-                exchange_rate = 1.0
-                realized_pnl_huf = realized_pnl
-                if ccy.upper() != "HUF":
-                    exchange_rate = self.exchange_service.get_exchange_rate(sale_date, ccy)
-                    if exchange_rate is None:
-                        exchange_rate = 0
-                    realized_pnl_huf = realized_pnl * exchange_rate
+            # Összegzés idegen pénznemben
+            total_buy_fc = buy_rows["Net Amt."].sum()
+            total_sell_fc = sell_rows["Net Amt."].sum() if not sell_rows.empty else 0
+
+            # Vásárlások HUF-ban: minden sorra külön átváltás (vásárlás napján érvényes árfolyam)
+            total_buy_huf = 0
+            for idx, row in buy_rows.iterrows():
+                rate_purchase = self.exchange_service.get_exchange_rate(row["Date"], ccy)
+                if rate_purchase is None:
+                    rate_purchase = 0
+                total_buy_huf += row["Net Amt."] * rate_purchase
+
+            # Eladások HUF-ban: minden eladási sorra külön átváltás (eladás napján érvényes árfolyam)
+            total_sell_huf = 0
+            for idx, row in sell_rows.iterrows():
+                rate_sale = self.exchange_service.get_exchange_rate(row["Date"], ccy)
+                if rate_sale is None:
+                    rate_sale = 0
+                total_sell_huf += row["Net Amt."] * rate_sale
+
+            if total_sell_fc != 0:
+                realized_pnl_fc = total_sell_fc - total_buy_fc
+                realized_pnl_huf = total_sell_huf - total_buy_huf
+                sale_date = sell_rows["Date"].max()
 
                 realized_list.append({
                     "Ticker": ticker,
                     "Currency": ccy,
-                    "Buy Sum": buy_sum,
-                    "Sell Sum": sell_sum,
-                    "Realized PnL": realized_pnl,
-                    "Sale Date": sale_date.strftime("%Y-%m-%d"),
-                    "Exchange Rate": exchange_rate,
-                    "Realized PnL (HUF)": realized_pnl_huf
+                    "Buy Sum (FC)": total_buy_fc,
+                    "Sell Sum (FC)": total_sell_fc,
+                    "Realized PnL (FC)": realized_pnl_fc,
+                    "Buy Sum (HUF)": total_buy_huf,
+                    "Sell Sum (HUF)": total_sell_huf,
+                    "Realized PnL (HUF)": realized_pnl_huf,
+                    "Sale Date": sale_date.strftime("%Y-%m-%d")
                 })
             else:
                 open_positions_list.append({
                     "Ticker": ticker,
                     "Currency": ccy,
-                    "Buy Sum": buy_sum
+                    "Buy Sum (FC)": total_buy_fc,
+                    "Buy Sum (HUF)": total_buy_huf
                 })
 
         realized_df = pd.DataFrame(realized_list)
@@ -160,11 +194,12 @@ class LightyearProcessor:
             income_rows.append({
                 "Date": row["Date"].strftime("%Y-%m-%d"),
                 "Currency": row["CCY"],
-                "Amount": row["Net Amt."],
+                "Amount (FC)": row["Net Amt."],
                 "Exchange Rate": rate if rate is not None else 1,
                 "Amount (HUF)": conv_amount
             })
         return pd.DataFrame(income_rows)
+
 
 class ExcelReportGenerator:
     """Generál egy Excel jelentést a feldolgozott adatokból."""
@@ -175,6 +210,20 @@ class ExcelReportGenerator:
         for row in worksheet.iter_rows(min_row=start_row, min_col=column, max_col=column):
             for cell in row:
                 cell.number_format = format_str
+
+    def auto_adjust_columns(self, worksheet):
+        """Automatikusan beállítja az oszlop szélességét a tartalom alapján."""
+        for col in worksheet.columns:
+            max_length = 0
+            col_letter = get_column_letter(col[0].column)
+            for cell in col:
+                try:
+                    if cell.value:
+                        max_length = max(max_length, len(str(cell.value)))
+                except:
+                    pass
+            adjusted_width = max_length + 2
+            worksheet.column_dimensions[col_letter].width = adjusted_width
 
     def generate(self, realized_df: pd.DataFrame, open_df: pd.DataFrame, 
                  interest_df: pd.DataFrame, dividend_df: pd.DataFrame) -> None:
@@ -202,7 +251,7 @@ class ExcelReportGenerator:
             summary_df.to_excel(writer, sheet_name="Összesítő", index=False)
             
             workbook = writer.book
-
+            from excel_config import SHEET_FORMAT_CONFIGS, HUF_FORMAT, NUMBER_FORMAT
             for sheet_name, formats in SHEET_FORMAT_CONFIGS.items():
                 if sheet_name in writer.sheets:
                     ws = writer.sheets[sheet_name]
@@ -215,6 +264,10 @@ class ExcelReportGenerator:
             if "Összesítő" in writer.sheets:
                 ws_summary = writer.sheets["Összesítő"]
                 self.apply_number_format(ws_summary, 2, 2, HUF_FORMAT)
+            
+            # Alkalmazzuk az oszlopok automatikus méretezését minden munkalapra
+            for sheet in workbook.worksheets:
+                self.auto_adjust_columns(sheet)
         
         print(f"Excel fájl sikeresen generálva: {self.output_file}")
 

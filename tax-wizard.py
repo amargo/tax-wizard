@@ -1,31 +1,32 @@
 import os
 import sys
+import argparse
 import pandas as pd
 import xml.etree.ElementTree as ET
 
 from datetime import datetime, timedelta
-from excel_config import SHEET_FORMAT_CONFIGS, HUF_FORMAT, NUMBER_FORMAT
+from io import StringIO
 from openpyxl.utils import get_column_letter
 from zeep import Client, Settings
+from excel_config import SHEET_FORMAT_CONFIGS, HUF_FORMAT, NUMBER_FORMAT
 
 STATEMENT_PREFIX = "[statement][transactions]"
 exchange_rate_cache = { }
 
+
 class MNBExchangeService:
-    """Az MNB árfolyam szolgáltatásával kapcsolatos műveletek."""
+    """Az MNB árfolyam szolgáltatásával kapcsolatos műveletek, cache-eléssel."""
     def __init__(self, wsdl_url="http://www.mnb.hu/arfolyamok.asmx?wsdl", strict=False):
         settings = Settings(strict=strict, xml_huge_tree=True)
         self.client = Client(wsdl_url, settings=settings)
 
     def get_exchange_rate(self, date: datetime, currency: str) -> float:
-        """Lekéri az adott dátum (illetve fallback esetén az előző nap) alapján a deviza árfolyamát.
-        Ha a deviza HUF, visszatér 1.0-vel.
-        Cache használatával elkerüli a többszöri lekérdezést.
+        """Lekéri az adott dátum (fallback esetén az előző nap) alapján a deviza árfolyamát.
+        Ha a deviza HUF, visszatér 1.0-vel. A lekérdezést cache-eli.
         """
         key = (date.strftime("%Y-%m-%d"), currency.upper())
         if key in exchange_rate_cache:
             return exchange_rate_cache[key]
-
         if currency.upper() == "HUF":
             exchange_rate_cache[key] = 1.0
             return 1.0
@@ -64,7 +65,7 @@ class MNBExchangeService:
 
         requested_date_str = date.strftime("%Y-%m-%d")
         # Megpróbáljuk megtalálni a kért dátumhoz tartozó napot,
-        # ha nem, akkor a legutolsó elérhető napot választjuk.        
+        # ha nem, akkor a legutolsó elérhető napot választjuk.
         chosen_day = None
         for d, day in days:
             if d.strftime("%Y-%m-%d") == requested_date_str:
@@ -77,7 +78,6 @@ class MNBExchangeService:
             if rate.attrib.get("curr", "").upper() == currency.upper():
                 try:
                     value = float(rate.text.replace(",", "."))
-                    # Cache-elés
                     exchange_rate_cache[key] = value
                     return value
                 except Exception as e:
@@ -97,7 +97,7 @@ class MNBExchangeService:
 
 
 class LightyearProcessor:
-    """LY tranzakciós adatok feldolgozása."""
+    """Lightyear CSV tranzakciós adatok feldolgozása."""
     def __init__(self, csv_file: str):
         self.csv_file = csv_file
         self.df = pd.read_csv(csv_file, parse_dates=["Date"], dayfirst=True)
@@ -106,21 +106,17 @@ class LightyearProcessor:
         self.exchange_service = MNBExchangeService()
 
     def process(self):
+        """Feldolgozza a CSV-t és DataFrame-eket készít:
+           - realized_df: Realizált (eladott) pozíciók
+           - open_df: Nyitott pozíciók
+           - interest_df: Kamatjövedelem
+           - dividend_df: Osztalékjövedelem
         """
-        Feldolgozza a CSV-ből a tranzakciókat.
-        Visszaadja a következő DataFrame-eket:
-          - realized_df: Realizált (eladott) pozíciók
-          - open_df: Nyitott pozíciók
-          - interest_df: Kamatjövedelem
-          - dividend_df: Osztalékjövedelem
-        """
-        # Szűrés: tranzakciók, ahol a Type Buy, Sell vagy Distribution
         trades = self.df[
             self.df["Type"].isin(["Buy", "Sell", "Distribution"]) &
             (self.df["Ticker"].notnull()) &
             (self.df["Ticker"] != "")
         ]
-        # Külön szűrjük a kamat- és osztalék sorokat
         interests = self.df[self.df["Type"] == "Interest"]
         dividends = self.df[self.df["Type"] == "Dividend"]
 
@@ -200,10 +196,38 @@ class LightyearProcessor:
             })
         return pd.DataFrame(income_rows)
 
+    def to_report(self) -> dict:
+        """Visszaad egy dictionary-t, melyben a Lightyear adatokhoz tartozó DataFrame-ek szerepelnek a munkalap nevekkel."""
+        realized_df, open_df, interest_df, dividend_df = self.process()
+        return {
+            "Realizált PnL": realized_df,
+            "Nyitott Pozíciók": open_df,
+            "Kamat": interest_df,
+            "Osztalék": dividend_df,
+            "Összesítő": pd.DataFrame({
+                "Category": [
+                    "Realizált PnL (HUF)",
+                    "Kamat (HUF)",
+                    "Osztalék (HUF)",
+                    "Összes bevallandó összeg (HUF)"
+                ],
+                "Total": [
+                    realized_df["Realized PnL (HUF)"].sum() if not realized_df.empty else 0,
+                    interest_df["Amount (HUF)"].sum() if not interest_df.empty else 0,
+                    dividend_df["Amount (HUF)"].sum() if not dividend_df.empty else 0,
+                    (realized_df["Realized PnL (HUF)"].sum() if not realized_df.empty else 0) +
+                    (interest_df["Amount (HUF)"].sum() if not interest_df.empty else 0) +
+                    (dividend_df["Amount (HUF)"].sum() if not dividend_df.empty else 0)
+                ]
+            })
+        }
+
 
 class ExcelReportGenerator:
-    """Generál egy Excel jelentést a feldolgozott adatokból."""
-    def __init__(self, output_file: str = "ado_bevallas.xlsx"):
+    """Közös Excel jelentés generátor, amely a report_data dictionary-t várja.
+       report_data: dict, ahol a kulcs a munkalap neve, az érték egy DataFrame.
+    """
+    def __init__(self, output_file: str = "report.xlsx"):
         self.output_file = output_file
 
     def apply_number_format(self, worksheet, column, start_row, format_str):
@@ -225,31 +249,11 @@ class ExcelReportGenerator:
             adjusted_width = max_length + 2
             worksheet.column_dimensions[col_letter].width = adjusted_width
 
-    def generate(self, realized_df: pd.DataFrame, open_df: pd.DataFrame, 
-                 interest_df: pd.DataFrame, dividend_df: pd.DataFrame) -> None:
+    def generate(self, report_data: dict) -> None:
         with pd.ExcelWriter(self.output_file, engine='openpyxl') as writer:
-            dataframes = {
-                "Realizált PnL": realized_df,
-                "Nyitott Pozíciók": open_df,
-                "Kamat": interest_df,
-                "Osztalék": dividend_df
-            }
-            for sheet_name, df in dataframes.items():
-                df.to_excel(writer, sheet_name=sheet_name, index=False)
-            
-            totals = {
-                "Realizált PnL (HUF)": realized_df["Realized PnL (HUF)"].sum() if not realized_df.empty else 0,
-                "Kamat (HUF)": interest_df["Amount (HUF)"].sum() if not interest_df.empty else 0,
-                "Osztalék (HUF)": dividend_df["Amount (HUF)"].sum() if not dividend_df.empty else 0
-            }
-            totals["Összes bevallandó összeg (HUF)"] = sum(totals.values())
-            
-            summary_df = pd.DataFrame({
-                "Category": list(totals.keys()),
-                "Total": list(totals.values())
-            })
-            summary_df.to_excel(writer, sheet_name="Összesítő", index=False)
-            
+            for sheet_name, df in report_data.items():
+                df.to_excel(writer, sheet_name=sheet_name[:31], index=False)
+
             workbook = writer.book
             from excel_config import SHEET_FORMAT_CONFIGS, HUF_FORMAT, NUMBER_FORMAT
             for sheet_name, formats in SHEET_FORMAT_CONFIGS.items():
@@ -260,25 +264,54 @@ class ExcelReportGenerator:
                         for cols in columns:
                             for col in cols:
                                 self.apply_number_format(ws, col, 2, format_str)
-            
-            if "Összesítő" in writer.sheets:
-                ws_summary = writer.sheets["Összesítő"]
-                self.apply_number_format(ws_summary, 2, 2, HUF_FORMAT)
-            
-            # Alkalmazzuk az oszlopok automatikus méretezését minden munkalapra
+
+            # Auto-adjust columns for every sheet
             for sheet in workbook.worksheets:
                 self.auto_adjust_columns(sheet)
-        
+
         print(f"Excel fájl sikeresen generálva: {self.output_file}")
 
-def main(args):
-    fname = args[1]
-    if not os.path.exists(fname):
-        sys.exit(f"{STATEMENT_PREFIX} file not found: {fname}")
-    processor = LightyearProcessor(fname)
-    realized_df, open_df, interest_df, dividend_df = processor.process()
-    report_generator = ExcelReportGenerator()
-    report_generator.generate(realized_df, open_df, interest_df, dividend_df)
+
+def main():
+
+    parser = argparse.ArgumentParser(
+        description="Generál Excel jelentést a CSV fájl alapján (lightyear vagy revolut)."
+    )
+    # Létrehozunk egy csoportot a kötelező argumentumoknak
+    required = parser.add_argument_group("required arguments")
+    required.add_argument(
+        "-m", "--mode",
+        dest="mode",
+        type=str,
+        choices=["lightyear", "revolut"],
+        help="A CSV fájl típusa: lightyear vagy revolut.",
+        required=True,
+    )
+    required.add_argument(
+        "-f", "--file",
+        dest="filename",
+        type=str,
+        help="A CSV fájl elérési útja.",
+        required=True,
+    )
+
+    args = parser.parse_args()
+    if not os.path.exists(args.filename):
+        sys.exit(f"{args.filename} file not found.")
+
+    if args.mode.lower() == "lightyear":
+        processor = LightyearProcessor(args.filename)
+        report_data = processor.to_report()
+        output_file = "lightyear_report.xlsx"
+    # elif args.mode.lower() == "revolut":
+    #     processor = RevolutProcessor(args.filename)
+    #     report_data = processor.to_report()
+    #     output_file = "revolut_report.xlsx"
+    else:
+        sys.exit("Invalid mode. Choose 'lightyear' or 'revolut'.")
+
+    report_generator = ExcelReportGenerator(output_file)
+    report_generator.generate(report_data)
 
 if __name__ == "__main__":
-    main(sys.argv)
+    main()

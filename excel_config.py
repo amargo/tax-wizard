@@ -19,5 +19,8 @@ SHEET_FORMAT_CONFIGS = {
     "Osztalék": {
         "number_format": [(3,), (4,)],
         "huf_format": [(5,)]
+    },
+    "Összesítő": {
+        "huf_format": [(2,)]
     }
 }

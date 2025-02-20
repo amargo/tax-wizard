@@ -143,20 +143,10 @@ class LightyearProcessor:
             total_sell_fc = sell_rows["Net Amt."].sum() if not sell_rows.empty else 0
 
             # Vásárlások HUF-ban: minden sorra külön átváltás (vásárlás napján érvényes árfolyam)
-            total_buy_huf = 0
-            for idx, row in buy_rows.iterrows():
-                rate_purchase = self.exchange_service.get_exchange_rate(row["Date"], ccy)
-                if rate_purchase is None:
-                    rate_purchase = 0
-                total_buy_huf += row["Net Amt."] * rate_purchase
+            total_buy_huf = self._sum_in_huf(buy_rows, ccy)
 
             # Eladások HUF-ban: minden eladási sorra külön átváltás (eladás napján érvényes árfolyam)
-            total_sell_huf = 0
-            for idx, row in sell_rows.iterrows():
-                rate_sale = self.exchange_service.get_exchange_rate(row["Date"], ccy)
-                if rate_sale is None:
-                    rate_sale = 0
-                total_sell_huf += row["Net Amt."] * rate_sale
+            total_sell_huf = self._sum_in_huf(sell_rows, ccy)
 
             if total_sell_fc != 0:
                 realized_pnl_fc = total_sell_fc - total_buy_fc
@@ -185,6 +175,16 @@ class LightyearProcessor:
         realized_df = pd.DataFrame(realized_list)
         open_df = pd.DataFrame(open_positions_list)
         return realized_df, open_df
+
+    def _sum_in_huf(self, df: pd.DataFrame, ccy: str) -> float:
+        total = 0.0
+        for idx, row in df.iterrows():
+            rate = self.exchange_service.get_exchange_rate(row["Date"], ccy)
+            if rate is None:
+                rate = 0
+            total += row["Net Amt."] * rate
+        return total
+
 
     def _process_income(self, income_df: pd.DataFrame):
         income_rows = []

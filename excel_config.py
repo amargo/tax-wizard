@@ -24,3 +24,17 @@ SHEET_FORMAT_CONFIGS = {
         "huf_format": [(2,)]
     }
 }
+
+SHEET_FORMAT_CONFIGS_REVOLUT_SAVINGS = {
+    "Megtakarítás": {
+        # Tegyük fel, hogy a részletes riportban a 4. és 5. oszlopok tartalmazzák az eredeti és HUF értékeket
+        "number_format": [(4,)],
+        "huf_format": [(5,)]
+    },
+    "Összesítő": {
+        # Az Összesítő oldalon a 2. oszlop (Összeg eredeti devizában) esetén a number_format,
+        # a 3. oszlop (Összeg HUF-ban) esetén a HUF formátum
+        "number_format": [(2, 3, 4, 8, )],
+        "huf_format": [(5, 6, 7, 9, )]
+    }
+}

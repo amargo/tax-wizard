@@ -1,13 +1,14 @@
 # Tax Wizard 🧙‍♂️
 
-Adóbevallás-segítő eszköz befektetési tranzakciók feldolgozásához és Excel kimutatás generálásához. Jelenleg a Lightyear befektetési platform kimutatásait támogatja.
+Adóbevallás-segítő eszköz befektetési tranzakciók feldolgozásához és Excel kimutatás generálásához. Jelenleg a Lightyear és Revolut platformok kimutatásait támogatja.
 
 ## 📋 Tartalomjegyzék
 - [Követelmények](#követelmények)
 - [Telepítés](#telepítés)
 - [Használat](#használat)
-- [Bemeneti CSV formátum](#bemeneti-csv-formátum)
+- [Támogatott platformok](#támogatott-platformok)
 - [Kimeneti Excel formátum](#kimeneti-excel-formátum)
+- [Technikai részletek](#technikai-részletek)
 
 ## 🔧 Követelmények
 
@@ -29,78 +30,132 @@ pip install --no-cache-dir -r requirements.txt
 
 ## 🚀 Használat
 
-1. Töltsd le a tranzakciós kimutatást a Lightyear platformról CSV formátumban
+1. Töltsd le a tranzakciós kimutatást a megfelelő platformról (Lightyear vagy Revolut)
 2. Helyezd el a CSV fájlt a program mappájában
 3. Futtasd a programot:
+
 ```bash
-python tax-wizard.py LightyearStatement.csv
+# Lightyear esetén:
+python tax-wizard.py --mode lightyear --file LightyearStatement.csv
+
+# Revolut esetén:
+python tax-wizard.py --mode revolut --file RevolutStatement.csv
+python tax-wizard.py --mode revolut_saving --file RevolutSavingsStatement.csv
 ```
 
-4. A program létrehoz egy `ado_bevallas.xlsx` fájlt az aktuális mappában
+## 🏢 Támogatott platformok
 
-## 📥 Bemeneti CSV formátum
-
-A program a Lightyear platformról letöltött tranzakciós kimutatásokat tudja feldolgozni. Példa a CSV formátumra:
+### Lightyear
 
 ```csv
 [statement][transactions]
 Date,Type,Status,Description,Amount,Currency,Exchange Rate,Fee,Fee Currency
-2024-01-15,BUY,Completed,AAPL,-150.50,USD,355.82,0.35,USD
+2024-01-15,BUY,Completed,AAPL,-150.50,EUR,355.82,0.35,EUR
 2024-02-01,SELL,Completed,AAPL,180.75,USD,356.10,0.35,USD
-2024-01-20,DIVIDEND,Completed,MSFT Dividend,1.50,USD,355.82,0.00,USD
-2024-02-05,INTEREST,Completed,Cash Interest,5.50,USD,355.82,0.00,USD
 ```
 
-A program automatikusan felismeri és feldolgozza a következő tranzakció típusokat:
+Támogatott tranzakciók:
 - BUY: Részvényvásárlás
 - SELL: Részvényeladás
 - DIVIDEND: Osztalék kifizetés
 - INTEREST: Kamat jóváírás
 
-## 📊 Kimeneti Excel formátum
+### Revolut
 
-Az Excel fájl a következő munkalapokat tartalmazza:
+```csv
+Completed Date,Description,Amount,Currency,State,Balance
+2024-01-15,Savings Interest,5.50,EUR,COMPLETED,1000.50
+2024-02-01,Stock Sale: AAPL,180.75,USD,COMPLETED,1181.25
+```
 
-### 1. Realizált PnL
-| Ticker | Currency | Buy Sum | Sell Sum | Realized PnL | Sale Date | Exchange Rate | Realized PnL (HUF) |
-|--------|----------|---------|-----------|-------------|-----------|--------------|------------------|
-| AAPL   | EUR      | 150.50  | 180.75    | 30.25       | 2024-02-01| 356.10       | 10,772 Ft        |
-| TSLA   | USD      | 220.30  | 280.45    | 60.15       | 2024-02-15| 357.25       | 21,489 Ft        |
+Támogatott tranzakciók:
+- Stock Purchase: Részvényvásárlás
+- Stock Sale: Részvényeladás
+- Savings Interest: Megtakarítási kamat
+- Dividend Payment: Osztalék kifizetés
 
-### 2. Nyitott Pozíciók
-| Ticker | Currency | Buy Sum |
-|--------|----------|---------|
-| MSFT   | EUR      | 285.50  |
-| GOOGL  | USD      | 2450.75 |
+## 📊 Excel formátumok
 
-### 3. Kamat
-| Date       | Currency | Amount | Exchange Rate | Amount (HUF) |
-|------------|----------|--------|---------------|--------------|
-| 2024-02-05 | EUR      | 5.50   | 355.82        | 1,957 Ft     |
-| 2024-03-10 | USD      | 3.75   | 356.50        | 1,337 Ft     |
+A program platformonként különböző Excel formátumokat használ, amelyeket az `excel_config.py` fájlban konfigurálhatunk:
 
-### 4. Osztalék
-| Date       | Currency | Amount | Exchange Rate | Amount (HUF) |
-|------------|----------|--------|---------------|--------------|
-| 2024-01-20 | USD      | 1.50   | 355.82        | 534 Ft       |
-| 2024-03-15 | EUR      | 2.25   | 357.30        | 804 Ft       |
+### 1. Lightyear formátum
+#### Realizált PnL lap példa:
+```
+| Dátum      | Ticker | Művelet | Mennyiség | Ár (USD) | Díj (USD) | Árfolyam | HUF összeg |
+|------------|--------|---------|-----------|----------|-----------|----------|------------|
+| 2024-01-15 | AAPL   | BUY     | 10        | 150.50   | 0.35      | 355.82   | 535,947    |
+| 2024-02-01 | AAPL   | SELL    | 10        | 180.75   | 0.35      | 356.10   | 644,281    |
+```
 
-### 5. Összesítő
-| Category                       | Total      |
-|--------------------------------|------------|
-| Realizált PnL (HUF)            | 32,261 Ft  |
-| Kamat (HUF)                    | 3,294 Ft   |
-| Osztalék (HUF)                 | 1,338 Ft   |
-| Összes bevallandó összeg (HUF) | 36,893 Ft  |
+#### Nyitott Pozíciók lap példa:
+```
+| Ticker | Mennyiség | Átlagár (USD) | Jelenlegi ár (USD) | HUF érték |
+|--------|-----------|---------------|-------------------|-----------|
+| MSFT   | 5         | 350.25        | 402.75           | 716,893   |
+| GOOGL  | 2         | 140.50        | 145.80           | 103,518   |
+```
+
+#### Kamat és Osztalék lap példa:
+```
+| Dátum      | Típus    | Összeg (USD) | Árfolyam | HUF összeg |
+|------------|----------|--------------|----------|------------|
+| 2024-01-20 | DIVIDEND | 0.88         | 355.90   | 313        |
+| 2024-02-15 | INTEREST | 1.25         | 356.20   | 445        |
+```
+
+### 2. Revolut formátum
+#### Tranzakciók lap példa:
+```csv
+Completed Date,Description,Amount,Currency,State,Balance
+2024-01-15,Savings Interest,5.50,EUR,COMPLETED,1000.50
+2024-02-01,Stock Sale: AAPL,180.75,USD,COMPLETED,1181.25
+2024-02-15,Stock Purchase: MSFT,-350.25,USD,COMPLETED,831.00
+2024-03-01,Dividend Payment: GOOGL,2.50,USD,COMPLETED,833.50
+```
+
+#### Megtakarítások lap példa:
+```csv
+Date,Description,Value,Price per share,Quantity of shares
+"Dec 31, 2024, 2:21:51 AM",Service Fee Charged GBP Class IE0002RUHW32,-£0.0276,,
+"Dec 31, 2024, 2:21:51 AM",Interest PAID GBP Class R IE0002RUHW32,£0.1376,,
+"Dec 30, 2024, 1:58:14 AM",Service Fee Charged GBP Class IE0002RUHW32,-£0.0276,,
+"Dec 30, 2024, 1:58:14 AM",Interest PAID GBP Class R IE0002RUHW32,£0.1376,,
+"Dec 29, 2024, 1:59:20 AM",Service Fee Charged GBP Class IE0002RUHW32,-£0.0276,,
+"Dec 29, 2024, 1:59:20 AM",Interest PAID GBP Class R IE0002RUHW32,£0.1276,,
+"Dec 28, 2024, 2:00:32 AM",Service Fee Charged GBP Class IE0002RUHW32,-£0.0276,,
+"Dec 28, 2024, 2:00:32 AM",Interest PAID GBP Class R IE0002RUHW32,£0.1376,,
+```
+
+#### Összesítő lap példa:
+```
+| Kategória          | Összeg (eredeti) | HUF összeg |
+|--------------------|------------------|------------|
+| Realizált nyereség | $1,234.50       | 439,881    |
+| Osztalék bevétel   | $245.75         | 87,567     |
+| Kamat bevétel      | £2.15           | 966        |
+| Szolgáltatási díj  | -£0.55          | -247       |
+```
+
+## 🔧 Technikai részletek
+
+### MNB Árfolyam kezelés
+
+Az `mnb_exchange_service.py` modul az MNB árfolyamokat kezeli:
+
+- **Cache rendszer**: 
+  - Helye: `~/exchange_rate_cache.json`
+  - Formátum: `"YYYY-MM-DD|CURRENCY": rate`
+  - Automatikus mentés és betöltés
+- **Hibakezelés**:
+  - Hétvégi árfolyamok: automatikus visszalépés az utolsó munkanapra
 
 ## 📝 Megjegyzések
 
-- A program automatikusan kezeli a Lightyear tranzakciós történetet
-- Az összegek automatikusan forintra váltódnak a megfelelő árfolyamon
-- A program kezeli a különböző devizákat
-- Az Excel fájlban minden összeg megfelelően formázva jelenik meg
-- A nyitott pozíciók nem számítanak bele az adózandó összegbe
-- A program figyelembe veszi és levonja a tranzakciós díjakat
+- A program kezeli mindkét platform tranzakciós történetét
+- Automatikus devizaváltás MNB árfolyamokkal
+- Intelligens cache rendszer a gyorsabb feldolgozásért
+- Részletes Excel formázás platformonként
+- Tranzakciós díjak automatikus kezelése
 
 ## ⚠️ Fontos figyelmeztetés
 

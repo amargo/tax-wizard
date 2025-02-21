@@ -80,28 +80,22 @@ A program platformonként különböző Excel formátumokat használ, amelyeket 
 
 ### 1. Lightyear formátum
 #### Realizált PnL lap példa:
-```
 | Dátum      | Ticker | Művelet | Mennyiség | Ár (USD) | Díj (USD) | Árfolyam | HUF összeg |
 |------------|--------|---------|-----------|----------|-----------|----------|------------|
 | 2024-01-15 | AAPL   | BUY     | 10        | 150.50   | 0.35      | 355.82   | 535,947    |
 | 2024-02-01 | AAPL   | SELL    | 10        | 180.75   | 0.35      | 356.10   | 644,281    |
-```
 
 #### Nyitott Pozíciók lap példa:
-```
 | Ticker | Mennyiség | Átlagár (USD) | Jelenlegi ár (USD) | HUF érték |
-|--------|-----------|---------------|-------------------|-----------|
-| MSFT   | 5         | 350.25        | 402.75           | 716,893   |
-| GOOGL  | 2         | 140.50        | 145.80           | 103,518   |
-```
+|--------|-----------|---------------|--------------------|-----------|
+| MSFT   | 5         | 350.25        | 402.75             | 716,893   |
+| GOOGL  | 2         | 140.50        | 145.80             | 103,518   |
 
 #### Kamat és Osztalék lap példa:
-```
 | Dátum      | Típus    | Összeg (USD) | Árfolyam | HUF összeg |
 |------------|----------|--------------|----------|------------|
 | 2024-01-20 | DIVIDEND | 0.88         | 355.90   | 313        |
 | 2024-02-15 | INTEREST | 1.25         | 356.20   | 445        |
-```
 
 ### 2. Revolut formátum
 #### Tranzakciók lap példa:
@@ -127,14 +121,12 @@ Date,Description,Value,Price per share,Quantity of shares
 ```
 
 #### Összesítő lap példa:
-```
 | Kategória          | Összeg (eredeti) | HUF összeg |
 |--------------------|------------------|------------|
-| Realizált nyereség | $1,234.50       | 439,881    |
-| Osztalék bevétel   | $245.75         | 87,567     |
-| Kamat bevétel      | £2.15           | 966        |
-| Szolgáltatási díj  | -£0.55          | -247       |
-```
+| Realizált nyereség | $1,234.50        | 439,881 FT |
+| Osztalék bevétel   | $245.75          | 87,567 FT  |
+| Kamat bevétel      | £2.15            | 966 FT     |
+| Szolgáltatási díj  | -£0.55           | -247 FT    |
 
 ## 🔧 Technikai részletek
 

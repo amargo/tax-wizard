@@ -24,6 +24,12 @@
     },
     {
       "matchManagers": [
+        "github-actions"
+      ],
+      "pinDigests": false
+    },
+    {
+      "matchManagers": [
         "dockerfile",
         "devcontainer"
       ],

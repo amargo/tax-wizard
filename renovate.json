@@ -7,12 +7,13 @@
     "group:monorepos",
     "group:recommended",
     ":pinDigestsDisabled",
-    "schedule:weekends",
+
     "workarounds:all"
   ],
   "enabledManagers": [
     "dockerfile",
-    "pip_requirements"
+    "pip_requirements",
+    "github-actions"
   ],
   "packageRules": [
     {
@@ -63,6 +64,17 @@
       ],
       "groupName": "🐍 Python major updates",
       "automerge": false
+    },
+    {
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "automerge": true,
+      "groupName": "⚡ GitHub Actions updates"
     },
     {
       "matchUpdateTypes": [

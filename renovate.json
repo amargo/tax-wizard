@@ -3,52 +3,38 @@
   "extends": [
     "config:recommended",
     "config:best-practices",
-    ":ignoreModulesAndTests",
     "group:monorepos",
     "group:recommended",
     ":pinDigestsDisabled",
-
-    "workarounds:all"
+    "workarounds:all",
+    "abandonments:recommended"
   ],
+  "timezone": "Europe/Budapest",
+  "schedule": [
+    "after 1am and before 5am on friday"
+  ],
+  "prHourlyLimit": 0,
+  "prConcurrentLimit": 10,
   "enabledManagers": [
-    "dockerfile",
     "pip_requirements",
     "github-actions"
   ],
+  "dependencyDashboard": true,
+  "dependencyDashboardTitle": "📦 Dependency Dashboard",
+  "osvVulnerabilityAlerts": true,
+  "platformAutomerge": true,
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "automerge": true,
+    "labels": [
+      "security"
+    ]
+  },
   "packageRules": [
-    {
-      "matchDatasources": [
-        "docker"
-      ],
-      "pinDigests": false
-    },
     {
       "matchManagers": [
         "github-actions"
       ],
-      "pinDigests": false
-    },
-    {
-      "matchManagers": [
-        "dockerfile",
-        "devcontainer"
-      ],
-      "matchUpdateTypes": [
-        "minor"
-      ],
-      "groupName": "🐋 Docker minor updates",
-      "automerge": true,
-      "pinDigests": false
-    },
-    {
-      "matchManagers": [
-        "dockerfile",
-        "devcontainer"
-      ],
-      "matchUpdateTypes": [
-        "major"
-      ],
-      "groupName": "🚢 Docker major updates",
       "pinDigests": false
     },
     {
@@ -58,8 +44,8 @@
       "matchUpdateTypes": [
         "minor"
       ],
-      "automerge": true,
-      "groupName": "🐍 Python minor updates"
+      "groupName": "🐍 Python minor updates",
+      "automerge": true
     },
     {
       "matchManagers": [
@@ -79,22 +65,15 @@
         "minor",
         "patch"
       ],
-      "automerge": true,
-      "groupName": "⚡ GitHub Actions updates"
+      "groupName": "⚡ GitHub Actions updates",
+      "automerge": true
     },
     {
       "matchUpdateTypes": [
         "patch"
       ],
-      "automerge": true,
-      "groupName": "🔖 Patch updates"
+      "groupName": "🔖 Patch updates",
+      "automerge": true
     }
-  ],
-  "vulnerabilityAlerts": {
-    "labels": [
-      "security"
-    ],
-    "osvVulnerabilityAlerts": true,
-    "automerge": false
-  }
+  ]
 }
